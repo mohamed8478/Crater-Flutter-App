@@ -14,7 +14,7 @@ class AuthApiService {
         'Content-Type': 'application/json',
       },
       body: jsonEncode({
-        'email': email,
+        'username': email,
         'password': password,
         'device_name': 'flutter_app', // Sanctum usually requires device_name
       }),
@@ -24,7 +24,21 @@ class AuthApiService {
       return jsonDecode(response.body);
     } else {
       final errorBody = jsonDecode(response.body);
-      throw Exception(errorBody['message'] ?? 'Failed to login');
+      String errorMessage = errorBody['message'] ?? 'Failed to login';
+
+      if (errorBody['errors'] != null) {
+        final Map<String, dynamic> errors = errorBody['errors'];
+        if (errors.isNotEmpty) {
+          final firstError = errors.values.first;
+          if (firstError is List && firstError.isNotEmpty) {
+            errorMessage = firstError.first.toString();
+          } else {
+            errorMessage = firstError.toString();
+          }
+        }
+      }
+
+      throw Exception(errorMessage);
     }
   }
 
@@ -45,12 +59,8 @@ class AuthApiService {
   }
 
   Future<Map<String, dynamic>> getCurrentUser(String token) async {
-    // According to api.php, there's a route `/v1/auth/check` or `/v1/me`
-    // Wait, let's use `/v1/auth/check` or maybe `/v1/me` to get the logged-in user.
-    // Looking at routes/api.php:
-    // Route::get('/auth/check', [AuthController::class, 'check']);
     final response = await http.get(
-      Uri.parse('$baseUrl/v1/auth/check'),
+      Uri.parse('$baseUrl/v1/me'),
       headers: {
         'Accept': 'application/json',
         'Authorization': 'Bearer $token',

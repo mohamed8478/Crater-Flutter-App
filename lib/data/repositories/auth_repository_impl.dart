@@ -19,14 +19,20 @@ class AuthRepositoryImpl implements AuthRepository {
     try {
       final responseData = await _apiService.login(email, password);
       
-      // We expect token inside 'token' or maybe nested inside data 
-      // User data usually inside 'user'
+      // Crater API returns a token in the login response
       final tokenInfo = AuthToken.fromJson(responseData);
-      final user = User.fromJson(responseData['user']);
 
+      // Save the token locally
       await _localStorageService.saveToken(tokenInfo.token);
 
-      return user;
+      // Now fetch the actual user using the new token
+      final user = await getCurrentUser();
+      
+      if (user != null) {
+        return user;
+      } else {
+        throw Exception('Failed to fetch user data after successful login.');
+      }
     } catch (e) {
       throw Exception(e.toString());
     }
