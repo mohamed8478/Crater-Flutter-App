@@ -3,6 +3,7 @@ import '../../domain/models/user.dart';
 import '../../domain/use_cases/login_use_case.dart';
 import '../../domain/use_cases/logout_use_case.dart';
 import '../../domain/use_cases/check_auth_status_use_case.dart';
+import '../../data/services/local_storage_service.dart';
 
 enum AuthStatus {
   initial,
@@ -16,20 +17,29 @@ class AuthViewModel extends ChangeNotifier {
   final LoginUseCase _loginUseCase;
   final LogoutUseCase _logoutUseCase;
   final CheckAuthStatusUseCase _checkAuthStatusUseCase;
+  final LocalStorageService _localStorageService;
 
   AuthViewModel({
     required LoginUseCase loginUseCase,
     required LogoutUseCase logoutUseCase,
     required CheckAuthStatusUseCase checkAuthStatusUseCase,
+    required LocalStorageService localStorageService,
   })  : _loginUseCase = loginUseCase,
         _logoutUseCase = logoutUseCase,
-        _checkAuthStatusUseCase = checkAuthStatusUseCase;
+        _checkAuthStatusUseCase = checkAuthStatusUseCase,
+        _localStorageService = localStorageService;
 
   AuthStatus _status = AuthStatus.initial;
   AuthStatus get status => _status;
 
   User? _currentUser;
   User? get currentUser => _currentUser;
+  User? get user => _currentUser;
+
+  String? _token;
+  String? get token => _token;
+
+  int? get companyId => _currentUser?.companyId;
 
   String? _errorMessage;
   String? get errorMessage => _errorMessage;
@@ -42,6 +52,7 @@ class AuthViewModel extends ChangeNotifier {
       final user = await _checkAuthStatusUseCase();
       if (user != null) {
         _currentUser = user;
+        _token = await _localStorageService.getToken();
         _status = AuthStatus.authenticated;
       } else {
         _status = AuthStatus.unauthenticated;
@@ -60,6 +71,7 @@ class AuthViewModel extends ChangeNotifier {
     try {
       final user = await _loginUseCase(email: email, password: password);
       _currentUser = user;
+      _token = await _localStorageService.getToken();
       _status = AuthStatus.authenticated;
     } catch (e) {
       _errorMessage = e.toString().replaceAll('Exception: ', '');
@@ -71,6 +83,7 @@ class AuthViewModel extends ChangeNotifier {
   Future<void> logout() async {
     await _logoutUseCase();
     _currentUser = null;
+    _token = null;
     _status = AuthStatus.unauthenticated;
     notifyListeners();
   }

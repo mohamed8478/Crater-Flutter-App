@@ -1,5 +1,4 @@
 import '../../domain/models/user.dart';
-import '../../domain/models/auth_token.dart';
 import '../../domain/repositories/auth_repository.dart';
 import '../services/auth_api_service.dart';
 import '../services/local_storage_service.dart';
@@ -18,15 +17,20 @@ class AuthRepositoryImpl implements AuthRepository {
   Future<User> login({required String email, required String password}) async {
     try {
       final responseData = await _apiService.login(email, password);
-      
-      // We expect token inside 'token' or maybe nested inside data 
-      // User data usually inside 'user'
-      final tokenInfo = AuthToken.fromJson(responseData);
-      final user = User.fromJson(responseData['user']);
 
-      await _localStorageService.saveToken(tokenInfo.token);
+      // Backend returns: { "type": "Bearer", "token": "..." }
+      final token = responseData['token'] as String;
+      await _localStorageService.saveToken(token);
 
-      return user;
+      // Try to use user data from login response if available
+      if (responseData.containsKey('user') && responseData['user'] != null) {
+        return User.fromJson(responseData['user'] as Map<String, dynamic>);
+      }
+
+      // Otherwise fetch user profile using the token
+      final userData = await _apiService.getCurrentUser(token);
+      final userJson = userData.containsKey('data') ? userData['data'] : userData;
+      return User.fromJson(userJson);
     } catch (e) {
       throw Exception(e.toString());
     }
@@ -55,9 +59,8 @@ class AuthRepositoryImpl implements AuthRepository {
 
     try {
       final responseData = await _apiService.getCurrentUser(token);
-      
-      // Let's assume the auth check returns user object 
-      // or wrapped in 'data' similar to standard responses
+
+      // If API call succeeds, use the returned user data
       if (responseData.containsKey('data')) {
         return User.fromJson(responseData['data']);
       }
