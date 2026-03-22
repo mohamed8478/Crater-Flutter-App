@@ -1,3 +1,4 @@
+import 'parsers.dart';
 class Estimate {
   final int id;
   final String estimateNumber;
@@ -36,10 +37,10 @@ class Estimate {
       status: json['status'] ?? 'DRAFT',
       estimateDate: json['estimate_date'],
       expiryDate: json['expiry_date'],
-      total: (json['total'] ?? 0) / 100.0,
-      subTotal: (json['sub_total'] ?? 0) / 100.0,
-      tax: (json['tax'] ?? 0) / 100.0,
-      discount: (json['discount'] ?? 0).toDouble(),
+      total: parseAmount(json['total']),
+      subTotal: parseAmount(json['sub_total']),
+      tax: parseAmount(json['tax']),
+      discount: parseDouble(json['discount']),
       customerId: json['customer_id'],
       customerName: json['customer']?['name'],
       currencySymbol: json['currency']?['symbol'] ?? '\$',

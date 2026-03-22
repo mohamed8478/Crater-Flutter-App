@@ -1,3 +1,4 @@
+import 'parsers.dart';
 class Payment {
   final int id;
   final String paymentNumber;
@@ -26,7 +27,7 @@ class Payment {
       id: json['id'] ?? 0,
       paymentNumber: json['payment_number'] ?? '',
       paymentDate: json['payment_date'],
-      amount: (json['amount'] ?? 0) / 100.0,
+      amount: parseAmount(json['amount']),
       customerId: json['customer_id'],
       customerName: json['customer']?['name'],
       currencySymbol: json['currency']?['symbol'] ?? '\$',

@@ -1,12 +1,22 @@
+import 'dart:io';
+
+import 'package:collection/collection.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import '../../config/theme/app_colors.dart';
 import '../../data/models/customer.dart';
 import '../../data/models/item.dart';
 import '../../data/models/line_item.dart';
+import '../../data/models/invoice_draft.dart';
 import '../../data/services/invoice_api_service.dart';
 import '../../data/services/customer_api_service.dart';
 import '../../data/services/item_api_service.dart';
+import '../../routing/app_router.dart';
+import 'models/invoice_preview_args.dart';
+import 'invoice_preview_generator.dart';
 import '../widgets/customer_picker.dart';
 import '../widgets/item_picker.dart';
 
@@ -16,6 +26,9 @@ class InvoiceFormScreen extends StatefulWidget {
   final ItemApiService itemService;
   final String token;
   final int? companyId;
+  final InvoiceDraft? draft;
+  final File? scanFile;
+  final XFile? xFile;
 
   const InvoiceFormScreen({
     super.key,
@@ -24,6 +37,9 @@ class InvoiceFormScreen extends StatefulWidget {
     required this.itemService,
     required this.token,
     this.companyId,
+    this.draft,
+    this.scanFile,
+    this.xFile,
   });
 
   @override
@@ -36,7 +52,11 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
 
   bool _loading = true;
   bool _saving = false;
+  bool _previewing = false;
   String? _error;
+  File? _scanFile;
+  XFile? _xFile;
+  String? _draftRawText;
 
   String _invoiceNumber = '';
   DateTime _invoiceDate = DateTime.now();
@@ -50,6 +70,9 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
   @override
   void initState() {
     super.initState();
+    _scanFile = widget.scanFile;
+    _xFile = widget.xFile;
+    _draftRawText = widget.draft?.rawText;
     _loadFormData();
   }
 
@@ -63,11 +86,71 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
       _customers = (results[0] as CustomerListResponse).customers;
       _catalogItems = (results[1] as ItemListResponse).items;
       _invoiceNumber = results[2] as String;
-      _lineItems.add(LineItem());
+      if (widget.draft != null) {
+        _applyDraft(widget.draft!);
+      } else {
+        _lineItems.add(LineItem());
+      }
     } catch (e) {
       _error = e.toString();
     }
     if (mounted) setState(() => _loading = false);
+  }
+
+  void _applyDraft(InvoiceDraft draft) {
+    if (draft.invoiceNumber != null && draft.invoiceNumber!.isNotEmpty) {
+      _invoiceNumber = draft.invoiceNumber!;
+    }
+    if (draft.invoiceDate != null) {
+      _invoiceDate = draft.invoiceDate!;
+    }
+    if (draft.dueDate != null) {
+      _dueDate = draft.dueDate;
+    }
+    if (draft.notes != null && draft.notes!.isNotEmpty) {
+      _notesController.text = draft.notes!;
+    }
+
+    final matchedCustomer = _resolveDraftCustomer(draft);
+    if (matchedCustomer != null) {
+      _selectedCustomer = matchedCustomer;
+    }
+
+    _lineItems
+      ..clear()
+      ..addAll(
+        draft.lineItems.isNotEmpty
+            ? draft.lineItems.map(_cloneLineItem)
+            : [LineItem()],
+      );
+  }
+
+  Customer? _resolveDraftCustomer(InvoiceDraft draft) {
+    if (draft.customerId != null) {
+      return _customers.firstWhereOrNull((c) => c.id == draft.customerId);
+    }
+    if (draft.customerName != null) {
+      final name = draft.customerName!.toLowerCase();
+      return _customers.firstWhereOrNull((c) => c.name.toLowerCase() == name);
+    }
+    return null;
+  }
+
+  LineItem _cloneLineItem(LineItem source) {
+    final cloned = LineItem(
+      itemId: source.itemId,
+      name: source.name,
+      quantity: source.quantity,
+      price: source.price,
+      description: source.description,
+      unitName: source.unitName,
+    )
+      ..discountType = source.discountType
+      ..discount = source.discount
+      ..discountVal = source.discountVal
+      ..tax = source.tax;
+    cloned.recalculate();
+    return cloned;
   }
 
   @override
@@ -114,6 +197,70 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
     });
   }
 
+  Future<void> _preview() async {
+    if (_selectedCustomer == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a customer before previewing'), backgroundColor: AppColors.danger),
+      );
+      return;
+    }
+    if (_lineItems.isEmpty || _lineItems.every((i) => i.name.isEmpty)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Add at least one line item to preview'), backgroundColor: AppColors.danger),
+      );
+      return;
+    }
+
+    setState(() => _previewing = true);
+    try {
+      // Generate preview locally instead of API call
+      final html = InvoicePreviewGenerator.generate(
+        invoiceNumber: _invoiceNumber,
+        invoiceDate: _invoiceDate,
+        dueDate: _dueDate,
+        customer: _selectedCustomer,
+        lineItems: _lineItems,
+        subTotal: _subTotal,
+        tax: _totalTax,
+        total: _total,
+        notes: _notesController.text.trim().isNotEmpty ? _notesController.text.trim() : null,
+      );
+
+      if (!mounted) return;
+      await context.push(
+        AppRoutes.invoicePreview,
+        extra: InvoicePreviewArgs(html: html, title: _invoiceNumber),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unable to build preview: $e'), backgroundColor: AppColors.danger),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _previewing = false);
+    }
+  }
+
+  Map<String, dynamic> _buildPayload() {
+    return {
+      'invoice_date': DateFormat('yyyy-MM-dd').format(_invoiceDate),
+      if (_dueDate != null) 'due_date': DateFormat('yyyy-MM-dd').format(_dueDate!),
+      'invoice_number': _invoiceNumber,
+      'customer_id': _selectedCustomer?.id,
+      'discount': 0,
+      'discount_type': 'fixed',
+      'discount_val': 0,
+      'sub_total': (_subTotal * 100).round(),
+      'total': (_total * 100).round(),
+      'tax': (_totalTax * 100).round(),
+      'template_name': 'invoice1',
+      'items': _lineItems.where((i) => i.name.isNotEmpty).map((i) => i.toJson()).toList(),
+      'exchange_rate': 1,
+      if (_notesController.text.trim().isNotEmpty) 'notes': _notesController.text.trim(),
+    };
+  }
+
   Future<void> _pickDate(DateTime initial, ValueChanged<DateTime> onPicked) async {
     final date = await showDatePicker(
       context: context,
@@ -140,24 +287,42 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
 
     setState(() => _saving = true);
     try {
-      final payload = {
-        'invoice_date': DateFormat('yyyy-MM-dd').format(_invoiceDate),
-        if (_dueDate != null) 'due_date': DateFormat('yyyy-MM-dd').format(_dueDate!),
-        'invoice_number': _invoiceNumber,
-        'customer_id': _selectedCustomer!.id,
-        'discount': 0,
-        'discount_type': 'fixed',
-        'discount_val': 0,
-        'sub_total': (_subTotal * 100).round(),
-        'total': (_total * 100).round(),
-        'tax': (_totalTax * 100).round(),
-        'template_name': 'invoice1',
-        'items': _lineItems.where((i) => i.name.isNotEmpty).map((i) => i.toJson()).toList(),
-        'exchange_rate': 1,
-        if (_notesController.text.trim().isNotEmpty) 'notes': _notesController.text.trim(),
-      };
-      await widget.invoiceService.createInvoice(widget.token, payload, companyId: widget.companyId);
+      final payload = _buildPayload();
+      final response = await widget.invoiceService.createInvoice(
+        widget.token,
+        payload,
+        companyId: widget.companyId,
+      );
+
+      final invoiceId = _extractInvoiceId(response);
+
+      // Attach scan file if available
+      if (invoiceId != null) {
+        final metadata = _draftRawText != null ? {'raw_text': _draftRawText} : null;
+
+        if (kIsWeb && _xFile != null) {
+          // Use XFile for web platform
+          await widget.invoiceService.attachScanFromXFile(
+            widget.token,
+            invoiceId,
+            _xFile!,
+            companyId: widget.companyId,
+            metadata: metadata,
+          );
+        } else if (_scanFile != null) {
+          // Use File for native platforms
+          await widget.invoiceService.attachScan(
+            widget.token,
+            invoiceId,
+            _scanFile!,
+            companyId: widget.companyId,
+            metadata: metadata,
+          );
+        }
+      }
+
       if (mounted) {
+        setState(() => _saving = false);
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Invoice created successfully')));
         Navigator.of(context).pop(true);
       }
@@ -188,6 +353,17 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
       appBar: AppBar(
         title: const Text('New Invoice'),
         actions: [
+          if (_previewing)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+            )
+          else
+            IconButton(
+              icon: const Icon(Icons.visibility_outlined),
+              tooltip: 'Preview',
+              onPressed: _saving ? null : _preview,
+            ),
           _saving
               ? const Padding(
                   padding: EdgeInsets.all(16),
@@ -395,5 +571,19 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
         ],
       ),
     );
+  }
+
+  int? _extractInvoiceId(Map<String, dynamic> response) {
+    final data = response['data'];
+    if (data is Map<String, dynamic>) {
+      if (data['invoice'] is Map<String, dynamic>) {
+        return (data['invoice']['id'] as num?)?.toInt();
+      }
+      return (data['id'] as num?)?.toInt();
+    }
+    if (response['invoice'] is Map<String, dynamic>) {
+      return (response['invoice']['id'] as num?)?.toInt();
+    }
+    return (response['id'] as num?)?.toInt();
   }
 }

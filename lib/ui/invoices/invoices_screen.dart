@@ -43,10 +43,7 @@ class _InvoicesView extends StatelessWidget {
     return CraterScaffold(
       title: 'Invoices',
       floatingActionButton: FloatingActionButton(
-        onPressed: () async {
-          final created = await context.push<bool>(AppRoutes.invoiceCreate);
-          if (created == true) vm.load();
-        },
+        onPressed: () => _showCreateOptions(context, vm),
         child: const Icon(Icons.add),
       ),
       body: Column(
@@ -104,7 +101,7 @@ class _InvoicesView extends StatelessWidget {
                               child: ListView.separated(
                                 padding: const EdgeInsets.all(16),
                                 itemCount: vm.invoices.length + (vm.hasMore ? 1 : 0),
-                                separatorBuilder: (_, _) => const SizedBox(height: 8),
+                                separatorBuilder: (context, index) => const SizedBox(height: 8),
                                 itemBuilder: (context, index) {
                                   if (index == vm.invoices.length) {
                                     return const Center(
@@ -114,7 +111,11 @@ class _InvoicesView extends StatelessWidget {
                                       ),
                                     );
                                   }
-                                  return _InvoiceCard(invoice: vm.invoices[index]);
+                                  final invoice = vm.invoices[index];
+                                  return _InvoiceCard(
+                                    invoice: invoice,
+                                    onTap: () => context.push(AppRoutes.invoiceDetailPath(invoice.id)),
+                                  );
                                 },
                               ),
                             ),
@@ -129,12 +130,50 @@ class _InvoicesView extends StatelessWidget {
     if (s.isEmpty) return s;
     return s[0] + s.substring(1).toLowerCase();
   }
+
+  Future<void> _showCreateOptions(BuildContext context, InvoiceViewModel vm) async {
+    final created = await showModalBottomSheet<bool>(
+      context: context,
+      builder: (ctx) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.edit_outlined),
+                title: const Text('Create manually'),
+                onTap: () => Navigator.of(ctx).pop(true),
+              ),
+              ListTile(
+                leading: const Icon(Icons.document_scanner_outlined),
+                title: const Text('Scan invoice'),
+                onTap: () => Navigator.of(ctx).pop(false),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (created == null) return;
+    if (!context.mounted) return;
+
+    if (created) {
+      final result = await context.push<bool>(AppRoutes.invoiceCreate);
+      if (result == true) vm.load();
+    } else {
+      if (!context.mounted) return;
+      final result = await context.push<bool>(AppRoutes.invoiceScan);
+      if (result == true) vm.load();
+    }
+  }
 }
 
 class _InvoiceCard extends StatelessWidget {
   final Invoice invoice;
+  final VoidCallback? onTap;
 
-  const _InvoiceCard({required this.invoice});
+  const _InvoiceCard({required this.invoice, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -142,9 +181,12 @@ class _InvoiceCard extends StatelessWidget {
     final fmt = NumberFormat('#,##0.00');
 
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
@@ -217,6 +259,7 @@ class _InvoiceCard extends StatelessWidget {
               ],
             ),
           ],
+        ),
         ),
       ),
     );

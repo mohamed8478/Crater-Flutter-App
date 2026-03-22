@@ -26,6 +26,8 @@ class Injection {
   }
 
   static void init() {
+    // crater.test is the Valet domain for the Laravel backend
+    // Android emulator uses 10.0.2.2 to access host machine
     final String baseUrl = (defaultTargetPlatform == TargetPlatform.android)
         ? 'http://10.0.2.2/api'
         : 'http://crater.test/api';

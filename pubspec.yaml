@@ -42,6 +42,15 @@ dependencies:
 
   # Utilities
   collection: ^1.19.0
+  image_picker: ^1.1.2
+
+  # OCR - on-device text recognition
+  google_mlkit_text_recognition: ^0.13.0
+  webview_flutter: ^4.8.0
+  webview_flutter_android: ^3.16.0
+  webview_flutter_wkwebview: ^3.13.0
+  webview_flutter_web: ^0.2.3+1
+  url_launcher: ^6.3.0
 
 dev_dependencies:
   flutter_test:

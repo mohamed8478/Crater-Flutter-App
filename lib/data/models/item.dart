@@ -1,3 +1,4 @@
+import 'parsers.dart';
 class Item {
   final int id;
   final String name;
@@ -22,7 +23,7 @@ class Item {
       id: json['id'] ?? 0,
       name: json['name'] ?? '',
       description: json['description'],
-      price: ((json['price'] ?? 0) as num).toDouble() / 100.0,
+      price: parseAmount(json['price']),
       unitId: json['unit_id'],
       unitName: json['unit']?['name'],
       createdAt: json['created_at'],

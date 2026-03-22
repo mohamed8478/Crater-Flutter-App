@@ -1,3 +1,4 @@
+import '../../data/models/parsers.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -459,7 +460,7 @@ class _RecentInvoicesCard extends StatelessWidget {
               separatorBuilder: (_, _) => const Divider(height: 1),
               itemBuilder: (context, index) {
                 final inv = invoices[index] as Map<String, dynamic>;
-                final total = (inv['total'] ?? 0) / 100.0;
+                final total = parseAmount(inv['total']);
                 final currency = inv['currency']?['symbol'] ?? '\$';
                 final status = inv['status'] ?? 'DRAFT';
                 return ListTile(
